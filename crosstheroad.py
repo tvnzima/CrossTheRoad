@@ -1,590 +1,450 @@
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
-import random
 import math
-import sys
-import time
+import random
 
 
-class GameState:
-    def __init__(self):
-        self.player_pos = [0, -800, 0] 
-        self.player_color = [random.random(), random.random(), random.random()]
-        self.lives = 3
-        self.points = 0  
-        self.level = 1
-        self.max_levels = 3
-        self.game_over = False
-        self.game_won = False
-        self.god_mode = False
-        self.night_mode = False
-        self.vehicles = []
-        self.logs = []
-        self.coins = [] 
-        self.current_log = None
-        self.invincible_until = None
-        self.camera_pos = [100, -400, 400]
-        self.fovY = 110
-        self.GRID_LENGTH = 600
-        self.RIVER_WIDTH = 500
-        self.ZEBRA_X_MIN, self.ZEBRA_X_MAX = -100, 100
-        self.GOAL_Y = 0
-        self.maps = []
-        self.map_y_ranges = []
-        self.safe_y_ranges = []
-        self.last_map = 'highway'
-        self.last_move_key = None
+player_pos = [0, -800, 60] 
+player_cloth_color = [1, 0, 0]  
+lives = 3  
+points = 0 
+game_over = False
+game_won = False
+vehicles = [] 
+logs = []  
+coins = []  
+camera_pos = [0, -400, 400]  
+fovY = 90 
+GRID_LENGTH = 600
+ZEBRA_X_MIN, ZEBRA_X_MAX = -100, 100
+GOAL_Y = 0 
+god_mode = False  
+level = 1
+max_levels = 3 
+maps = []  
+map_y_ranges = []  
+safe_y_ranges = []  
+last_map = 'highway'
 
-    def reset(self):
-        self.player_pos = [0, -800, 0]  
-        self.player_color = [random.random(), random.random(), random.random()]
-        self.lives = 3
-        self.points = 0  
-        self.game_over = False
-        self.game_won = False
-        self.god_mode = False
-        self.invincible_until = None
-        self.vehicles.clear()
-        self.logs.clear()
-        self.coins.clear() 
-        self.current_log = None
-        self.last_move_key = None
-        self.maps = random.choice([
+def reset_game():
+    global player_pos, player_cloth_color, lives, points, game_over, game_won, vehicles, logs, coins, god_mode, maps, map_y_ranges, safe_y_ranges, GOAL_Y, last_map
+    player_pos = [0, -800, 60] 
+    player_cloth_color = [random.random(), random.random(), random.random()]
+    lives = 3
+    points = 0  
+    game_over = False
+    game_won = False
+    vehicles.clear()
+    logs.clear()
+    coins.clear() 
+    god_mode = False
+   
+    map_y_ranges.clear()
+    
+    if last_map == 'river':
+        maps = ['highway', 'river', 'highway']  
+    else:
+        maps = random.choice([
             ['highway', 'river', 'highway'],
             ['highway', 'river', 'highway', 'highway'],
             ['highway', 'highway', 'river', 'highway']
-        ]) if self.last_map != 'river' else ['highway', 'river', 'highway']
-        self.map_y_ranges = []
-        self.safe_y_ranges = [(-800, -600)]
-        y_start = -600
-        for i, map_type in enumerate(self.maps):
-            self.map_y_ranges.append((y_start, y_start + 200))
-            if i < len(self.maps) - 1:
-                self.safe_y_ranges.append((y_start + 200, y_start + 250))
-            y_start += 250
-        self.GOAL_Y = self.map_y_ranges[-1][1]
-        self.safe_y_ranges.append((self.GOAL_Y, self.GOAL_Y + 250))
-        self.last_map = self.maps[-1]
-        self.init_vehicles()
-        self.init_logs()
-        self.init_coins()
+        ])
+   
+    safe_y_ranges = [(-800, -600)]  
+    y_start = -600
+    for i, map_type in enumerate(maps):
+        map_y_ranges.append((y_start, y_start + 200))
+        if i < len(maps) - 1:
+            safe_y_ranges.append((y_start + 200, y_start + 250))
+        y_start += 250
+    GOAL_Y = map_y_ranges[-1][1]  
+    safe_y_ranges.append((GOAL_Y, GOAL_Y + 250))  
+    last_map = maps[-1]
+    init_vehicles()
+    init_logs()
+    init_coins()
+    print(f"Reset game: maps={maps}, map_y_ranges={map_y_ranges}, safe_y_ranges={safe_y_ranges}, GOAL_Y={GOAL_Y}")
 
-    def init_vehicles(self):
-        self.vehicles = []
-        for i, (y_min, y_max) in enumerate(self.map_y_ranges):
-            if self.maps[i] != 'highway':
-                continue
-            for _ in range(1):
-                y = random.uniform(y_min + 20, y_max)
-                x = random.uniform(-self.GRID_LENGTH, self.GRID_LENGTH)
-                vtype = random.choice(['car', 'truck', 'bus'])
-                speed = random.uniform(0.6, 1.0) + 0.1 * (self.level - 1)
-                speed *= random.choice([-1, 1])
-                self.vehicles.append([x, y, 0, vtype, speed])  
+def init_vehicles():
+    global vehicles
+    vehicles = []
+    for i, (y_min, y_max) in enumerate(map_y_ranges):
+        if maps[i] != 'highway':
+            continue
+        for _ in range(3):  
+            y = random.uniform(y_min, y_max)
+            x = random.uniform(-GRID_LENGTH, GRID_LENGTH)
+            vtype = random.choice(['car', 'truck', 'bus'])
+            speed = random.uniform(0.2, 0.4) + 0.05 * (level - 1)
+            speed *= random.choice([-1, 1])
+            vehicles.append([x, y, 60, vtype, speed, i])  
+            print(f"Spawned vehicle {vtype} at x={x}, y={y}, map_index={i} (highway: {y_min} to {y_max})")
 
-    def init_logs(self):
-        self.logs = []
-        lane_positions = [50, 100, 150]
-        directions = [1, -1, 1]
-        for i, (y_min, y_max) in enumerate(self.map_y_ranges):
-            if self.maps[i] != 'river':
-                continue
-            for j, lane_y in enumerate(lane_positions):
-                y = y_min + lane_y
-                speed = (0.5 + 0.1 * (self.level - 1)) * directions[j]
-                spacing = 100
-                start_x = -self.RIVER_WIDTH if directions[j] > 0 else self.RIVER_WIDTH
-                for k in range(-int(self.RIVER_WIDTH / spacing) - 1, int(self.RIVER_WIDTH / spacing) + 2):
-                    x = start_x + k * spacing
-                    if -self.RIVER_WIDTH <= x <= self.RIVER_WIDTH:
-                        self.logs.append([x, y, 0, speed])  
+def init_logs():
+    global logs
+    logs = []
+    for i, (y_min, y_max) in enumerate(map_y_ranges):
+        if maps[i] != 'river':
+            continue
+        for _ in range(8):  
+            y = random.uniform(y_min, y_max)
+            x = random.uniform(-GRID_LENGTH, GRID_LENGTH)
+            speed = (0.2 + 0.05 * (level - 1)) * random.choice([-1, 1])
+            logs.append([x, y, 60, speed])
+            print(f"Spawned log at x={x}, y={y} (river: {y_min} to {y_max})")
 
-    def init_coins(self):
-        self.coins = []
-        highway_ranges = [(y_min, y_max) for i, (y_min, y_max) in enumerate(self.map_y_ranges) if self.maps[i] == 'highway']
-        grid_step = 50
-        used_positions = set() 
-        while len(self.coins) < 5:
-            y_range = random.choice(highway_ranges)
-            x_grid = random.randint(-self.GRID_LENGTH // grid_step, self.GRID_LENGTH // grid_step)
-            x = x_grid * grid_step
-            y_min, y_max = y_range[0] + 20, y_range[1] - 20
-            y_grid = random.randint(int(y_min // grid_step), int(y_max // grid_step))
-            y = y_grid * grid_step
-            if y_range[0] <= y <= y_range[1] and (x, y) not in used_positions:
-                self.coins.append([x, y, 0])  
-                used_positions.add((x, y))
-
-game = GameState()
-
-def setup_lighting():
-    try:
-        glEnable(GL_LIGHTING)
-        glEnable(GL_LIGHT0)
-        if game.night_mode:
-            glLightfv(GL_LIGHT0, GL_AMBIENT, [0.2, 0.2, 0.2, 1.0])
-            glLightfv(GL_LIGHT0, GL_DIFFUSE, [0.5, 0.5, 0.5, 1.0])
-            glLightfv(GL_LIGHT0, GL_SPECULAR, [0.0, 0.0, 0.0, 1.0])
-            light_pos = [game.player_pos[0], game.player_pos[1], 200, 1.0]
-            glLightfv(GL_LIGHT0, GL_POSITION, light_pos)
-            glLightf(GL_LIGHT0, GL_SPOT_CUTOFF, 45.0)
-            spot_direction = [0.0, 0.0, -1.0]
-            glLightfv(GL_LIGHT0, GL_SPOT_DIRECTION, spot_direction)
-            glLightf(GL_LIGHT0, GL_SPOT_EXPONENT, 2.0)
-        else:
-            glLightfv(GL_LIGHT0, GL_AMBIENT, [0.8, 0.8, 0.8, 1.0])
-            glLightfv(GL_LIGHT0, GL_DIFFUSE, [1.0, 1.0, 1.0, 1.0])
-            glLightfv(GL_LIGHT0, GL_SPECULAR, [0.0, 0.0, 0.0, 1.0])
-            glLightfv(GL_LIGHT0, GL_POSITION, [0, 0, 1000, 0.0])
-            glLightf(GL_LIGHT0, GL_SPOT_CUTOFF, 180.0)
-    except Exception as e:
-        print(f"Error in setup_lighting: {e}")
+def init_coins():
+    global coins
+    coins = []
+  
+    for i, (y_min, y_max) in enumerate(map_y_ranges):
+        if maps[i] != 'highway':
+            continue
+        for _ in range(3): 
+            x = random.uniform(-GRID_LENGTH, GRID_LENGTH)
+            y = random.uniform(y_min, y_max)
+            coins.append([x, y, 60, True])  
+            print(f"Spawned coin at x={x}, y={y} (highway: {y_min} to {y_max})")
+ 
+    for y_min, y_max in safe_y_ranges:
+        for _ in range(2):  
+            x = random.uniform(-GRID_LENGTH, GRID_LENGTH)
+            y = random.uniform(y_min, y_max)
+            coins.append([x, y, 60, True]) 
+            print(f"Spawned coin at x={x}, y={y} (safe zone: {y_min} to {y_max})")
 
 def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
-    try:
-        glColor3f(1, 1, 1)
-        glMatrixMode(GL_PROJECTION)
-        glPushMatrix()
-        glLoadIdentity()
-        gluOrtho2D(0, 800, 0, 600)
-        glMatrixMode(GL_MODELVIEW)
-        glPushMatrix()
-        glLoadIdentity()
-        glRasterPos2f(x, y)
-        for ch in text:
-            glutBitmapCharacter(font, ord(ch))
-        glPopMatrix()
-        glMatrixMode(GL_PROJECTION)
-        glPopMatrix()
-        glMatrixMode(GL_MODELVIEW)
-    except Exception as e:
-        print(f"Error in draw_text: {e}")
+    glColor3f(1, 1, 1)
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, 1000, 0, 800)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    glRasterPos2f(x, y)
+    for ch in text:
+        glutBitmapCharacter(font, ord(ch))
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
 
-def draw_human():
-    try:
-        glPushMatrix()
-        glTranslatef(game.player_pos[0], game.player_pos[1], game.player_pos[2])
-        time = glutGet(GLUT_ELAPSED_TIME) / 1000.0
-        swing_angle = 20 * math.sin(3 * time) if game.last_move_key else 0
-        glColor3fv(game.player_color)
-        glPushMatrix()
-        glTranslatef(0, 0, 15)
-        glScalef(1, 0.5, 1.5)
-        glutSolidCube(15)
-        glPopMatrix()
-        glPushMatrix()
-        glTranslatef(0, 0, 35)
-        glColor3f(1, 0.8, 0.6)
-        gluSphere(gluNewQuadric(), 8, 8, 8)
-        glPopMatrix()
-        glPushMatrix()
-        glTranslatef(-10, 0, 25)
-        glRotatef(-45, 0, 1, 0)
-        glRotatef(-swing_angle, 1, 0, 0)
-        glScalef(0.3, 0.3, 1.2)
-        glColor3f(0.5, 0.5, 0.5)
-        glutSolidCube(8)
-        glPopMatrix()
-        glPushMatrix()
-        glTranslatef(10, 0, 25)
-        glRotatef(45, 0, 1, 0)
-        glRotatef(swing_angle, 1, 0, 0)
-        glScalef(0.3, 0.3, 1.2)
-        glColor3f(0.5, 0.5, 0.5)
-        glutSolidCube(8)
-        glPopMatrix()
-        glPushMatrix()
-        glTranslatef(-5, 0, 0)
-        glRotatef(swing_angle, 1, 0, 0)
-        glScalef(0.3, 0.3, 1.2)
-        glColor3f(0.5, 0.5, 0.5)
-        glutSolidCube(8)
-        glPopMatrix()
-        glPushMatrix()
-        glTranslatef(5, 0, 0)
-        glRotatef(-swing_angle, 1, 0, 0)
-        glScalef(0.3, 0.3, 1.2)
-        glColor3f(0.5, 0.5, 0.5)
-        glutSolidCube(8)
-        glPopMatrix()
-        glPopMatrix()
-    except Exception as e:
-        print(f"Error in draw_human: {e}")
+def draw_student():
+    glPushMatrix()
+    glTranslatef(player_pos[0], player_pos[1], player_pos[2])
+  
+    glColor3fv(player_cloth_color)
+    glutSolidCube(40)
+
+    glPushMatrix()
+    glTranslatef(0, 0, 30)
+    glColor3f(0, 0, 0)
+    gluSphere(gluNewQuadric(), 15, 10, 10)
+    glPopMatrix()
+
+    glPushMatrix()
+    glTranslatef(-10, 0, -20)
+    glColor3f(0.5, 0.5, 0.5)
+    glRotatef(90, 1, 0, 0)
+    gluCylinder(gluNewQuadric(), 5, 5, 30, 10, 10)
+    glPopMatrix()
+  
+    glPushMatrix()
+    glTranslatef(10, 0, -20)
+    glColor3f(0.5, 0.5, 0.5)
+    glRotatef(90, 1, 0, 0)
+    gluCylinder(gluNewQuadric(), 5, 5, 30, 10, 10)
+    glPopMatrix()
+  
+    glPushMatrix()
+    glTranslatef(0, 10, 0)
+    glColor3f(1, 1, 1)
+    glutSolidCube(10)
+ 
+    glColor3f(0, 0, 1)
+    glTranslatef(0, 0, 5)
+    glRotatef(90, 1, 0, 0)
+    gluCylinder(gluNewQuadric(), 1, 1, 20, 10, 10)
+
+    glColor3f(1, 1, 1)
+    glTranslatef(0, 0, 20)
+    gluSphere(gluNewQuadric(), 3, 10, 10)
+    glPopMatrix()
+    glPopMatrix()
 
 def draw_vehicles():
-    try:
-        time = glutGet(GLUT_ELAPSED_TIME) / 1000.0
-        for vehicle in game.vehicles:
-            x, y, z, vtype, speed = vehicle
-            glPushMatrix()
-            glTranslatef(x, y, z)
-            if speed < 0:
-                glRotatef(180, 0, 0, 1)
-            if vtype == 'car':
-                glColor3f(1, 0, 0)
-                glPushMatrix()
-                glScalef(1, 0.5, 0.5)
-                glutSolidCube(50)
-                glPopMatrix()
-            elif vtype == 'truck':
-                glColor3f(0, 1, 0)
-                glPushMatrix()
-                glScalef(1.5, 0.6, 0.6)
-                glutSolidCube(60)
-                glPopMatrix()
-            elif vtype == 'bus':
-                glColor3f(1, 1, 0)
-                glPushMatrix()
-                glScalef(2, 0.4, 0.5)
-                glutSolidCube(50)
-                glPopMatrix()
-            wheel_rotation = 200 * time * abs(speed)
-            wheel_color = [0.2, 0.2, 0.2]
-            wheel_scale = 0.3
-            wheel_positions = [
-                (-15, 10, -8), (-15, -10, -8),
-                (15, 10, -8), (15, -10, -8)
-            ]
-            for wx, wy, wz in wheel_positions:
-                glPushMatrix()
-                glTranslatef(wx, wy, wz)
-                glRotatef(wheel_rotation, 0, 1, 0)
-                glScalef(wheel_scale, wheel_scale, 0.1)
-                glColor3fv(wheel_color)
-                glutSolidCube(15)
-                glPopMatrix()
-            glEnable(GL_BLEND)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            glColor4f(0, 0.5, 1, 0.5)
-            if vtype == 'car':
-                glBegin(GL_QUADS)
-                glVertex3f(24, -10, 5)
-                glVertex3f(24, 10, 5)
-                glVertex3f(24, 10, 20)
-                glVertex3f(24, -10, 20)
-                glEnd()
-            elif vtype == 'truck':
-                glBegin(GL_QUADS)
-                glVertex3f(44, -12, 6)
-                glVertex3f(44, 12, 6)
-                glVertex3f(44, 12, 24)
-                glVertex3f(44, -12, 24)
-                glEnd()
-            elif vtype == 'bus':
-                glBegin(GL_QUADS)
-                glVertex3f(49, -15, 5)
-                glVertex3f(49, 15, 5)
-                glVertex3f(49, 15, 20)
-                glVertex3f(49, -15, 20)
-                glEnd()
-            glDisable(GL_BLEND)
-            glPopMatrix()
-    except Exception as e:
-        print(f"Error in draw_vehicles: {e}")
+    for x, y, z, vtype, _, _ in vehicles:
+        glPushMatrix()
+        glTranslatef(x, y, z)
+        if vtype == 'car':
+            glColor3f(1, 0, 0)
+            glutSolidCube(60)
+        elif vtype == 'truck':
+            glColor3f(0, 1, 0)
+            glScalef(1.5, 1, 1)
+            glutSolidCube(80)
+        elif vtype == 'bus':
+            glColor3f(1, 1, 0)
+            glScalef(2, 0.8, 1)
+            glutSolidCube(60)
+        glPopMatrix()
 
 def draw_logs():
-    try:
-        time = glutGet(GLUT_ELAPSED_TIME) / 1000.0
-        for log in game.logs:
-            x, y, z, speed = log
-            glPushMatrix()
-            glTranslatef(x, y, z + 7.5)
-            if speed < 0:
-                glRotatef(180, 0, 0, 1)
-            glColor3f(0.6, 0.4, 0.2)
-            glPushMatrix()
-            glScalef(4, 1.5, 0.5)
-            glutSolidCube(30)
-            glPopMatrix()
-            glPopMatrix()
-    except Exception as e:
-        print(f"Error in draw_logs: {e}")
+    for x, y, z, _ in logs:
+        glPushMatrix()
+        glTranslatef(x, y, z)
+        glColor3f(0.6, 0.4, 0.2)
+        glScalef(3, 1.5, 0.5)  
+        glutSolidCube(40)
+        glPopMatrix()
 
 def draw_coins():
-    try:
-        time = glutGet(GLUT_ELAPSED_TIME) / 1000.0
-        for coin in game.coins:
-            x, y, z = coin
-            glPushMatrix()
-            glTranslatef(x, y, z + 15)
-            glColor3f(1.0, 1.0, 0.0)
-            glRotatef(90, 1, 0, 0)
-            glRotatef(45 * time, 0, 0, 1)
-            glutSolidTorus(2, 10, 8, 8)
-            glPopMatrix()
-    except Exception as e:
-        print(f"Error in draw_coins: {e}")
+    for x, y, z, active in coins:
+        if not active:
+            continue
+        glPushMatrix()
+        glTranslatef(x, y, z)
+        glColor3f(1, 1, 0) 
+        gluSphere(gluNewQuadric(), 10, 10, 10)  
+        glPopMatrix()
 
-def keyboard_listener(key, x, y):
-    if game.game_over or game.game_won:
+def keyboardListener(key, x, y):
+    global player_pos, game_over, game_won, god_mode, points
+    if game_over or game_won:
         if key == b'r':
-            game.level = 1
-            game.reset()
+            global level
+            level = 1  
+            points = 0  
+            reset_game()
         return
-    if key in [b'g', b'G']:
-        game.god_mode = not game.god_mode
+    if key in [b'g', b'G']: 
+        god_mode = not god_mode
         return
-    if key in [b'n', b'N']:
-        game.night_mode = not game.night_mode
-        setup_lighting()
-        return
-    grid_step = 50
-    new_x, new_y, z = game.player_pos
-    in_river = False
-    current_river_y_min, current_river_y_max = None, None
-    for i, (y_min, y_max) in enumerate(game.map_y_ranges):
-        if game.maps[i] == 'river' and y_min <= game.player_pos[1] < y_max:
-            in_river = True
-            current_river_y_min, current_river_y_max = y_min, y_max
-            break
-    if key == b'w' and new_y < game.GOAL_Y:
+    grid_step = 40
+    x, y, z = player_pos
+    new_x, new_y = x, y
+    if key == b'w' and y < GOAL_Y:
         new_y += grid_step
-        if in_river:
-            new_y = min(new_y, current_river_y_max)
-        game.last_move_key = b'w'
-    elif key == b's' and new_y > -game.GRID_LENGTH:
+    if key == b's' and y > -GRID_LENGTH:
         new_y -= grid_step
-        if in_river:
-            new_y = max(new_y, current_river_y_min)
-        game.last_move_key = b's'
-    elif key == b'a' and new_x > -game.GRID_LENGTH:
+    if key == b'a' and x > -GRID_LENGTH:
         new_x -= grid_step
-        game.last_move_key = b'a'
-    elif key == b'd' and new_x < game.GRID_LENGTH:
+    if key == b'd' and x < GRID_LENGTH:
         new_x += grid_step
-        game.last_move_key = b'd'
-    else:
-        game.last_move_key = None
-    if in_river and game.current_log and key in [b'a', b'd']:
-        lx, ly, lz, _ = game.current_log
-        if abs(new_y - ly) <= 22.5:
-            new_x = lx
-    game.player_pos[0], game.player_pos[1] = new_x, new_y
+    player_pos[0], player_pos[1] = new_x, new_y
+    print(f"Player moved to x={player_pos[0]}, y={player_pos[1]}, z={player_pos[2]}")
 
-def special_key_listener(key, x, y):
-    x, y, z = game.camera_pos
+def specialKeyListener(key, x, y):
+    global camera_pos
+    x, y, z = camera_pos
     if key == GLUT_KEY_LEFT:
         x -= 10
-    elif key == GLUT_KEY_RIGHT:
+    if key == GLUT_KEY_RIGHT:
         x += 10
-    elif key == GLUT_KEY_UP:
+    if key == GLUT_KEY_UP:
         z += 10
-    elif key == GLUT_KEY_DOWN:
+    if key == GLUT_KEY_DOWN:
         z = max(100, z - 10)
-    game.camera_pos = [x, y, z]
+    camera_pos = (x, y, z)
 
-def setup_camera():
+def mouseListener(button, state, x, y):
+    pass 
+
+def setupCamera():
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
-    gluPerspective(game.fovY, 1.25, 0.1, 1500)
+    gluPerspective(fovY, 1.25, 0.1, 1500)
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
-    x, y, z = game.camera_pos
-    target_x, target_y, target_z = game.player_pos
-    camera_y = max(-500, min(game.GOAL_Y - 200, target_y - 300))
+    x, y, z = camera_pos
+    target_x, target_y, target_z = player_pos
+ 
+    camera_y = max(-500, min(GOAL_Y - 200, target_y - 300))
     gluLookAt(x, camera_y, z, target_x, target_y, target_z, 0, 0, 1)
 
 def update_game():
-    if game.game_over or game.game_won:
+    global vehicles, logs, coins, lives, points, game_over, game_won, player_pos, level, last_map
+    if game_over or game_won:
         return
-    if game.player_pos[1] >= game.GOAL_Y:
-        game.last_map = game.maps[-1]
-        game.level += 1
-        if game.level > game.max_levels:
-            game.game_won = True
+   
+    for vehicle in vehicles:
+        x, y, z, vtype, speed, map_index = vehicle
+        vehicle[0] += speed 
+       
+        if map_index < len(maps) and maps[map_index] == 'highway':
+            y_min, y_max = map_y_ranges[map_index]
+            if vehicle[0] < -GRID_LENGTH - 100:
+                vehicle[0] = GRID_LENGTH + 100
+                vehicle[1] = random.uniform(y_min, y_max)
+                print(f"Respawned vehicle {vtype} at x={vehicle[0]}, y={vehicle[1]}, map_index={map_index} (highway: {y_min} to {y_max})")
+            elif vehicle[0] > GRID_LENGTH + 100:
+                vehicle[0] = -GRID_LENGTH - 100
+                vehicle[1] = random.uniform(y_min, y_max)
+                print(f"Respawned vehicle {vtype} at x={vehicle[0]}, y={vehicle[1]}, map_index={map_index} (highway: {y_min} to {y_max})")
+         
+            vehicle[1] = max(y_min, min(y_max, vehicle[1]))
         else:
-            game.player_pos = [0, -800, 0]
-            game.current_log = None
-            game.invincible_until = None
-            game.reset()
-        return
-    for vehicle in game.vehicles:
-        vehicle[0] += vehicle[4]
-        for y_min, y_max in game.map_y_ranges:
-            if vehicle[1] >= y_min and vehicle[1] <= y_max:
-                if vehicle[0] < -game.GRID_LENGTH - 100:
-                    vehicle[0] = game.GRID_LENGTH + 100
-                    vehicle[1] = random.uniform(y_min + 20, y_max)
-                elif vehicle[0] > game.GRID_LENGTH + 100:
-                    vehicle[0] = -game.GRID_LENGTH - 100
-                    vehicle[1] = random.uniform(y_min + 20, y_max)
-                break
-    for log in game.logs:
+            print(f"Warning: Vehicle {vtype} has invalid map_index={map_index}, y={y}")
+       
+        px, py, pz = player_pos
+        in_safe_zone = any(y_min <= py <= y_max for y_min, y_max in safe_y_ranges)
+        if in_safe_zone:
+            continue
+        vx, vy, vz = vehicle[:3]
+        size = 60 if vtype == 'car' else 80 if vtype == 'truck' else 100
+        if abs(px - vx) < size / 2 and abs(py - vy) < 40 and not god_mode:
+            lives -= 1
+            if lives <= 0:
+                game_over = True
+            else:
+                player_pos = [0, -800, 60]
+
+    for log in logs:
         log[0] += log[3]
-        for y_min, y_max in game.map_y_ranges:
+        for i, (y_min, y_max) in enumerate(map_y_ranges):
             if log[1] >= y_min and log[1] <= y_max:
-                lane_y = log[1]
-                if log[3] > 0 and log[0] > game.RIVER_WIDTH:
-                    log[0] = -game.RIVER_WIDTH
-                    log[1] = lane_y
-                elif log[3] < 0 and log[0] < -game.RIVER_WIDTH:
-                    log[0] = game.RIVER_WIDTH
-                    log[1] = lane_y
+                if log[0] < -GRID_LENGTH - 100:
+                    log[0] = GRID_LENGTH + 100
+                    log[1] = random.uniform(y_min, y_max)
+                    print(f"Respawned log at x={log[0]}, y={log[1]} (river: {y_min} to {y_max})")
+                elif log[0] > GRID_LENGTH + 100:
+                    log[0] = -GRID_LENGTH - 100
+                    log[1] = random.uniform(y_min, y_max)
+                    print(f"Respawned log at x={log[0]}, y={log[1]} (river: {y_min} to {y_max})")
                 break
-    px, py, pz = game.player_pos
+
+    px, py, pz = player_pos
     in_river = False
-    current_river_y_min, current_river_y_max = None, None
-    for i, (y_min, y_max) in enumerate(game.map_y_ranges):
-        if game.maps[i] == 'river' and y_min <= py < y_max:
+    for i, (y_min, y_max) in enumerate(map_y_ranges):
+        if maps[i] == 'river' and y_min < py < y_max:
             in_river = True
-            current_river_y_min, current_river_y_max = y_min, y_max
+            on_log = False
+            for log in logs:
+                lx, ly, lz = log[:3]
+                if abs(px - lx) < 120 and abs(py - ly) < 60:  
+                    on_log = True
+                    player_pos[0] += log[3] 
+                    player_pos[0] = max(-GRID_LENGTH, min(GRID_LENGTH, player_pos[0]))
+                    break
+            if not on_log and not god_mode:
+                lives -= 1
+                if lives <= 0:
+                    game_over = True
+                else:
+                    player_pos = [0, -800, 60]
             break
-    if any(y_min <= py <= y_max for y_min, y_max in game.safe_y_ranges) or not in_river:
-        game.current_log = None
-        if not in_river:
-            game.invincible_until = time.time() + 1.0
-    if not game.god_mode and (game.invincible_until is None or time.time() > game.invincible_until):
+  
+    for coin in coins:
+        cx, cy, cz, active = coin
+        if not active:
+            continue
         
-        coins_to_remove = []
-        for i, coin in enumerate(game.coins):
-            cx, cy, cz = coin
-            if abs(px - cx) < 50 and abs(py - cy) < 50:  
-                game.points += 1
-                coins_to_remove.append(i)
-                print("Collected coin! Points:", game.points)
-        for i in sorted(coins_to_remove, reverse=True):
-            game.coins.pop(i)
-        
-        for vehicle in game.vehicles:
-            if any(y_min <= py <= y_max for y_min, y_max in game.safe_y_ranges):
-                continue
-            vx, vy, vz = vehicle[:3]
-            vtype = vehicle[3]
-            size = 50 if vtype == 'car' else 60 if vtype == 'truck' else 50
-            if abs(px - vx) < size / 2 and abs(py - vy) < 40:
-                print(f"Hit by {vtype}!")
-                time.sleep(0.5)
-                game.lives -= 1
-                if game.lives <= 0:
-                    game.game_over = True
-                else:
-                    game.player_pos = [0, -800, 0]
-                    game.current_log = None
-                    game.invincible_until = None
-                break
+        if abs(px - cx) < 20 and abs(py - cy) < 20 and abs(pz - cz) < 20:
+            coin[3] = False 
+            points += 1
+            print(f"Collected coin at x={cx}, y={cy}, points={points}")
+  
+    if py > safe_y_ranges[-1][0]:
+        player_pos[1] = safe_y_ranges[-1][0]
+        print(f"Clamped y to {player_pos[1]} to prevent overshooting goal")
     
-        if in_river and not any(y_min <= py <= y_max for y_min, y_max in game.safe_y_ranges):
-            if game.current_log:
-                lx, ly, lz, speed = game.current_log
-                log_valid = (-game.RIVER_WIDTH <= lx <= game.RIVER_WIDTH and
-                             current_river_y_min <= ly < current_river_y_max and
-                             game.current_log in game.logs and
-                             abs(py - ly) <= 22.5)
-                if log_valid:
-                    game.player_pos[0] = lx
-                    game.player_pos[1] = ly
-                else:
-                    game.current_log = None
-            if not game.current_log:
-                on_log = False
-                for log in game.logs:
-                    lx, ly, lz, _ = log
-                    if abs(px - lx) <= 60 and abs(py - ly) <= 22.5:
-                        on_log = True
-                        game.current_log = log
-                        game.player_pos[0] = lx
-                        game.player_pos[1] = ly
-                        break
-                if not on_log:
-                    print("Fell in river!")
-                    time.sleep(0.5)
-                    game.lives -= 1
-                    if game.lives <= 0:
-                        game.game_over = True
-                    else:
-                        game.player_pos = [0, -800, 0]
-                        game.current_log = None
-                        game.invincible_until = None
+    if player_pos[1] >= GOAL_Y:
+        last_map = maps[-1] 
+        level += 1
+        if level > max_levels:
+            game_won = True
+        else:
+            player_pos = [0, -800, 60]
+            vehicles.clear()
+            logs.clear()
+            coins.clear()
+            reset_game()
+    print(f"Update: Player at x={px}, y={py}, z={pz}, in_river={in_river}")
+   
+    for i, (x, y, _, vtype, _, map_index) in enumerate(vehicles):
+        for j, (y_min, y_max) in enumerate(map_y_ranges):
+            if maps[j] == 'river' and y_min <= y <= y_max:
+                print(f"Warning: Vehicle {vtype} #{i} in river at x={x}, y={y}, map_index={map_index}")
 
 def idle():
     update_game()
     glutPostRedisplay()
-    time.sleep(0.01)
 
-def show_screen():
-    try:
-        if game.night_mode:
-            glClearColor(0.1, 0.1, 0.3, 1.0)
+def showScreen():
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glLoadIdentity()
+    glViewport(0, 0, 1000, 800)
+    setupCamera()
+
+   
+    glBegin(GL_QUADS)
+   
+    for y_min, y_max in safe_y_ranges:
+        if y_min >= GOAL_Y: 
+            glColor3f(0, 1, 0) 
         else:
-            glClearColor(0.5, 0.7, 1.0, 1.0)
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        glLoadIdentity()
-        glViewport(0, 0, 800, 600)
-        setup_camera()
-        setup_lighting()
-        glBegin(GL_QUADS)
-        for y_min, y_max in game.safe_y_ranges:
-            if y_min >= game.GOAL_Y:
-                glColor3f(0, 1, 0) if not game.night_mode else glColor3f(0, 0.5, 0)
-            else:
-                glColor3f(0.53, 0.53, 0.53) if not game.night_mode else glColor3f(0.3, 0.3, 0.3)
-            glVertex3f(-game.GRID_LENGTH, y_min, 0)
-            glVertex3f(game.GRID_LENGTH, y_min, 0)
-            glVertex3f(game.GRID_LENGTH, y_max, 0)
-            glVertex3f(-game.GRID_LENGTH, y_max, 0)
-        for i, (y_min, y_max) in enumerate(game.map_y_ranges):
-            if game.maps[i] == 'highway':
-                glColor3f(0, 0, 0) if not game.night_mode else glColor3f(0.2, 0.2, 0.2)
-            else:
-                glColor3f(0, 0, 1) if not game.night_mode else glColor3f(0, 0, 0.5)
-            glVertex3f(-game.GRID_LENGTH, y_min, 0)
-            glVertex3f(game.GRID_LENGTH, y_min, 0)
-            glVertex3f(game.GRID_LENGTH, y_max, 0)
-            glVertex3f(-game.GRID_LENGTH, y_max, 0)
-        glEnd()
-        glBegin(GL_QUADS)
-        glColor3f(1, 1, 1) if not game.night_mode else glColor3f(0.8, 0.8, 0.8)
-        for i, (y_min, y_max) in enumerate(game.map_y_ranges):
-            if game.maps[i] != 'highway':
-                continue
-            for y in range(int(y_min), int(y_max) - 1, 40):
-                glVertex3f(game.ZEBRA_X_MIN, y, 1)
-                glVertex3f(game.ZEBRA_X_MAX, y, 1)
-                glVertex3f(game.ZEBRA_X_MAX, y + 20, 1)
-                glVertex3f(game.ZEBRA_X_MIN, y + 20, 1)
-        glEnd()
-        draw_human()
-        draw_vehicles()
-        draw_logs()
-        draw_coins()
-        draw_text(10, 570, f"Lives: {game.lives}")
-        draw_text(150, 570, f"Points: {game.points}")
-        draw_text(300, 570, f"Level: {game.level}")
-        if game.god_mode:
-            draw_text(600, 570, "God Mode: ON")
-        draw_text(600, 550, "Night Mode" if game.night_mode else "Day Mode")
-        if game.game_over:
-            draw_text(300, 300, "Game Over! Press R to Restart")
-        if game.game_won:
-            draw_text(300, 300, "You Win! Press R to Restart")
-        glutSwapBuffers()
-    except Exception as e:
-        print(f"Rendering error: {e}")
-        game.game_over = True
+            glColor3f(0.53, 0.53, 0.53)  
+        glVertex3f(-GRID_LENGTH, y_min, 0)
+        glVertex3f(GRID_LENGTH, y_min, 0)
+        glVertex3f(GRID_LENGTH, y_max, 0)
+        glVertex3f(-GRID_LENGTH, y_max, 0)
+  
+    for i, (y_min, y_max) in enumerate(map_y_ranges):
+        if maps[i] == 'highway':
+            glColor3f(0, 0, 0)  
+        else:  
+            glColor3f(0, 0, 1)  
+        glVertex3f(-GRID_LENGTH, y_min, 0)
+        glVertex3f(GRID_LENGTH, y_min, 0)
+        glVertex3f(GRID_LENGTH, y_max, 0)
+        glVertex3f(-GRID_LENGTH, y_max, 0)
+    glEnd()
+ 
+    glBegin(GL_QUADS)
+    glColor3f(1, 1, 1)
+    for i, (y_min, y_max) in enumerate(map_y_ranges):
+        if maps[i] != 'highway':
+            continue
+        for y in range(int(y_min), int(y_max) - 1, 40):
+            glVertex3f(ZEBRA_X_MIN, y, 1)
+            glVertex3f(ZEBRA_X_MAX, y, 1)
+            glVertex3f(ZEBRA_X_MAX, y + 20, 1)
+            glVertex3f(ZEBRA_X_MIN, y + 20, 1)
+    glEnd()
+
+    draw_student()
+    draw_vehicles()
+    draw_logs()
+    draw_coins()
+
+    draw_text(10, 770, f"Lives: {lives}")
+    draw_text(200, 770, f"Points: {points}")
+    draw_text(400, 770, f"Level: {level}")
+    if god_mode:
+        draw_text(800, 770, "God Mode: ON")
+    if game_over:
+        draw_text(400, 400, "Game Over! Press R to Restart")
+    if game_won:
+        draw_text(400, 400, "You Win! Press R to Restart")
+
+    glutSwapBuffers()
 
 def main():
-    try:
-        glutInit(sys.argv)
-        glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
-        glutInitWindowSize(800, 600)
-        glutInitWindowPosition(0, 0)
-        glutCreateWindow(b"Cross the Road")
-        glEnable(GL_DEPTH_TEST)
-        glEnable(GL_LIGHTING)
-        glEnable(GL_LIGHT0)
-        glEnable(GL_COLOR_MATERIAL)
-        glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
-        glutDisplayFunc(show_screen)
-        glutKeyboardFunc(keyboard_listener)
-        glutSpecialFunc(special_key_listener)
-        glutIdleFunc(idle)
-        game.reset()
-        setup_lighting()
-        glutMainLoop()
-    except Exception as e:
-        print(f"Error initializing OpenGL/GLUT: {e}")
-        sys.exit(1)
+    glutInit()
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)
+    glutInitWindowSize(1000, 800)
+    glutInitWindowPosition(0, 0)
+    glutCreateWindow(b"Campus Crossing")
+    glEnable(GL_DEPTH_TEST)
+    glutDisplayFunc(showScreen)
+    glutKeyboardFunc(keyboardListener)
+    glutSpecialFunc(specialKeyListener)
+    glutMouseFunc(mouseListener)
+    glutIdleFunc(idle)
+    reset_game()
+    glutMainLoop()
 
 if __name__ == "__main__":
     main()
